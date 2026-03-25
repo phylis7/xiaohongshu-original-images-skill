@@ -1,38 +1,27 @@
 # xiaohongshu-original-images
 
-这是一个用于 **提取和下载小红书（Xiaohongshu）笔记原图** 的 OpenClaw Skill。
+用于 **提取并下载小红书笔记原图** 的 OpenClaw Skill。
 
-它的目标不是保存网页预览图，而是尽量拿到：
+核心目标：
 
-- **原图**
-- **无水印优先**
-- **更少浏览器往返**
-- **更稳定的下载流程**
-
-适合下面这类需求：
-
-- “帮我把这个小红书链接里的原图下载下来”
-- “这个小红书笔记的图片发我原图”
-- “不要压缩图，不要模糊图，直接提取原图”
+- 优先获取原图
+- 尽量避免水印图 / 预览图 / 压缩图
+- 减少浏览器往返
+- 提高下载稳定性
 
 ---
 
-## 功能说明
+## 1. 部署到 OpenClaw
 
-这个 Skill 会优先通过页面里的笔记数据提取图片原始标识，再组合为可下载的原图地址。
+### 方式一：直接放到本地 skills 目录
 
-核心能力包括：
+把整个技能目录放到你的 OpenClaw skills 目录下，例如：
 
-- 从小红书分享链接进入最终笔记页
-- 提取 `source_note_id`、`xsec_token`、`xsec_source`
-- 优先从 feed 数据中拿图片原始信息
-- 失败时回退到 SSR 预览图并反推出 `raw_key`
-- 用脚本自动探测可用原图 CDN 并下载
-- 避免直接使用带压缩/预览参数的链接
+```text
+~/.openclaw/workspace/skills/xiaohongshu-original-images
+```
 
----
-
-## 仓库结构
+目录结构应保持如下：
 
 ```text
 xiaohongshu-original-images/
@@ -43,67 +32,87 @@ xiaohongshu-original-images/
    └─ xhs_download_images.py
 ```
 
-### 文件作用
-
-- `SKILL.md`
-  - Skill 主说明文件
-  - 定义了触发场景、执行流程、浏览器提取逻辑、回退策略
-
-- `references/url-patterns.md`
-  - 说明什么是预览图 URL、什么是原图 URL、什么是 `raw_key`
-  - 用于避免下载到带水印或被压缩的图片
-
-- `scripts/xhs_download_images.py`
-  - 下载脚本
-  - 负责识别输入、探测 CDN、下载图片到本地目录
+放好后，OpenClaw 在匹配到相关请求时就可以触发这个 skill。
 
 ---
 
-## 如何使用
+### 方式二：作为仓库拉到你的工作区
 
-### 方式一：在 OpenClaw 里作为 Skill 使用
+如果你想从 GitHub 拉取：
 
-当用户给出一个小红书链接，并表达“下载原图 / 保存原图 / 发原图”之类意图时，这个 Skill 会被触发。
+```bash
+git clone https://github.com/phylis7/xiaohongshu-original-images-skill.git
+```
 
-典型说法例如：
+然后把其中的技能目录放到你的 OpenClaw skills 目录下：
 
-- 把这个小红书链接里的原图发我
+```text
+xiaohongshu-original-images-skill/xiaohongshu-original-images
+```
+
+复制到：
+
+```text
+~/.openclaw/workspace/skills/
+```
+
+最终目标仍然是：
+
+```text
+~/.openclaw/workspace/skills/xiaohongshu-original-images
+```
+
+---
+
+## 2. 触发方式
+
+当用户发送小红书链接，并表达类似意图时适用：
+
 - 帮我下载这个小红书笔记的原图
-- 这个小红书链接里的图片保存原图
+- 把这个小红书链接里的图片原图发我
+- 保存这个小红书帖子里的原图
 
-Skill 的执行思路是：
+---
+
+## 3. 工作原理
+
+Skill 的优先流程：
 
 1. 打开小红书分享链接
 2. 跳转到最终笔记页 `/explore/<note_id>`
-3. 在页面里一次性提取：
-   - 笔记参数
+3. 一次性提取：
+   - `source_note_id`
+   - `xsec_token`
+   - `xsec_source`
    - SSR 图片信息
    - feed 返回结果
-4. 优先使用 feed 中的原图信息
-5. 如果 feed 不可用，则从 SSR 预览图反推 `raw_key`
-6. 调用 Python 脚本下载原图
+4. 优先使用 `feedRawKeys`
+5. feed 不可用时，退回 `ssrRawKeys`
+6. 调用下载脚本生成原图文件
 
 ---
 
-### 方式二：直接使用下载脚本
+## 4. 直接使用脚本
 
-你也可以不用整套 Skill，只直接调用脚本。
+脚本位置：
 
-#### 1）根据 URL 探测
-
-```bash
-python scripts/xhs_download_images.py --probe-only --url "<图片链接或预览链接>"
+```text
+scripts/xhs_download_images.py
 ```
 
-这个模式适合先验证某个链接能不能还原成原图地址。
+### 探测链接是否可还原为原图
 
-#### 2）按 raw_key 下载
+```bash
+python scripts/xhs_download_images.py --probe-only --url "<图片链接>"
+```
+
+### 按 raw_key 下载
 
 ```bash
 python scripts/xhs_download_images.py --out-dir tmp/xhs --key "<raw_key_1>" --key "<raw_key_2>"
 ```
 
-#### 3）按 URL 直接下载
+### 按 URL 直接下载
 
 ```bash
 python scripts/xhs_download_images.py --out-dir tmp/xhs --url "<preview_or_raw_url>"
@@ -111,30 +120,22 @@ python scripts/xhs_download_images.py --out-dir tmp/xhs --url "<preview_or_raw_u
 
 ---
 
-## 推荐使用流程
+## 5. 文件说明
 
-推荐按照下面顺序使用，稳定性最好：
-
-1. 用浏览器打开小红书分享链接
-2. 进入最终笔记页
-3. 从页面中提取：
-   - `source_note_id`
-   - `xsec_token`
-   - `xsec_source`
-   - `feedRawKeys` / `ssrRawKeys`
-4. 优先使用 `feedRawKeys`
-5. 再调用 `xhs_download_images.py` 下载到本地
+- `SKILL.md`：Skill 主逻辑与执行说明
+- `references/url-patterns.md`：URL / raw_key 识别规则
+- `scripts/xhs_download_images.py`：原图探测与下载脚本
 
 ---
 
-## 结果校验
+## 6. 使用时的判断标准
 
-下载完成后，建议至少检查以下几点：
+下载完成后，建议确认：
 
-- 文件是否真实存在
-- MIME 类型是否为 `image/*`
-- 分辨率是否合理，不是很小的缩略图
-- 下载链接是否包含以下预览特征：
+- 文件真实存在
+- 文件类型为 `image/*`
+- 分辨率不是缩略图尺寸
+- 链接不包含以下预览特征：
   - `sns-webpic`
   - `imageView2`
   - `!nd_prv`
@@ -142,41 +143,26 @@ python scripts/xhs_download_images.py --out-dir tmp/xhs --url "<preview_or_raw_u
   - `WB_PRV`
   - `WB_DFT`
 
-如果有这些特征，通常说明拿到的是预览图，不是理想原图。
+如果包含这些特征，通常不是理想原图。
 
 ---
 
-## 适用场景
+## 7. 适用范围
 
 适合：
 
 - 小红书分享链接原图提取
 - 无水印优先下载
-- 批量保存笔记图片
-- 给用户返回更清晰的原始图片
+- 返回更清晰的图片文件
 
 不适合：
 
-- 抓取视频
-- 抓取登录后强权限内容
-- 长期高频批量爬取
-- 绕过平台风控的重型抓取任务
+- 视频抓取
+- 高强度批量爬取
+- 绕过平台风控的自动化抓取
 
 ---
 
-## 注意事项
+## 8. 一句话说明
 
-- 小红书页面结构和接口签名可能变化
-- 如果 feed 接口失效，Skill 会退回 SSR 路线
-- 如果页面要求登录，需重新进入可访问页面后再提取
-- 本 Skill 目标是提高原图获取成功率，不保证平台所有笔记都可稳定提取
-
----
-
-## 总结
-
-这个 Skill 的定位很明确：
-
-> **尽量稳定、尽量少绕路地把小红书笔记图片提取成原图并下载下来。**
-
-如果你在 OpenClaw 里经常处理“小红书原图下载”这类任务，这个 Skill 就是专门为这个场景准备的。
+这是一个专门给 OpenClaw 用的 skill，用来把小红书笔记里的图片尽量还原成原图并下载下来。
