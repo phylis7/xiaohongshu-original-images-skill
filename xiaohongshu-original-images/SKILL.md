@@ -22,11 +22,11 @@ Prefer this data flow:
 1. **One browser open** to the final note page
 2. **One browser evaluate** that returns both:
    - note request params: `source_note_id`, `xsec_token`, `xsec_source`
-   - SSR preview image URLs
+   - SSR / initial-state image objects
    - `raw_key` values normalized from SSR preview URLs
    - signed feed API result (best case)
-3. If feed returns original image URLs, **normalize them back to `raw_key`** and download from original CDN
-4. Only if feed is unavailable, use SSR-derived `raw_key` as fallback
+3. If feed returns true original image URLs, download those or normalize them back to `raw_key`
+4. If feed is unavailable, treat SSR / initial-state URLs as **preview fallback**, not as confirmed originals
 
 Do **not** bounce between multiple browser snapshots / evaluates if one evaluate can return everything.
 
@@ -43,10 +43,10 @@ In the same evaluate call:
 
 - read the current URL
 - extract `source_note_id`, `xsec_token`, `xsec_source`
-- read SSR / initial state image URLs if present
+- read SSR / initial state image objects if present
 - convert SSR preview URLs to `raw_key`
 - call the page webpack API wrapper for `/api/sns/web/v1/feed`
-- return both the feed result and the fallback `raw_key` list
+- return both the feed result and the fallback SSR data
 
 Use this pattern:
 
@@ -117,15 +117,16 @@ async () => {
 }
 ```
 
-### 3. Prefer `feedRawKeys`, fallback to `ssrRawKeys`
+### 3. Success classification matters more than fallback depth
 
 Priority:
 
-1. `feedRawKeys`
-2. `feedUrls` stripped back to raw form
-3. `ssrRawKeys`
+1. `feedUrls` that are clearly **not** preview URLs
+2. `feedRawKeys`
+3. `ssrRawKeys` only as a probing fallback
+4. `window.__INITIAL_STATE__` / SSR `urlDefault` only as **preview_only**
 
-Do not return SSR preview URLs directly unless the user explicitly asks for previews.
+Do not return SSR preview URLs as "originals". If only SSR preview URLs are available, label the result as `preview_only`.
 
 ## URL / key rules
 
@@ -139,8 +140,20 @@ Short version:
 - **Best internal representation**:
   - `raw_key`
 - **Safe downloadable original form**:
-  - `https://<original-cdn-host>/<raw_key>`
+  - `https://<original-cdn-host>/notes_pre_post/<raw_key>`
   - no query, no `!nd_*`, no preview transform suffix
+
+### Success statuses
+
+The skill must distinguish:
+
+- `original_success`
+  - final URL is **not** `sns-webpic`
+  - final URL does **not** contain `!nd_*`, `WB_PRV`, `WB_DFT`, or `imageView2`
+- `preview_only`
+  - only `urlDefault`, `urlPre`, `sns-webpic`, or other preview URLs are available
+- `failed`
+  - no usable image URL could be downloaded
 
 ### Raw key derivation rule
 
@@ -153,12 +166,30 @@ For any SSR preview URL:
 
 ## Download workflow
 
-Use the bundled script to:
+For a share link or pasted Xiaohongshu share text, use the end-to-end extractor first:
+
+```bash
+python scripts/xhs_extract_note_images.py "<share text or URL>" --out-dir tmp/xhs
+```
+
+It will:
+
+- resolve the short link
+- parse the note `window.__INITIAL_STATE__`
+- extract `imageList`
+- derive `raw_key` from each preview URL
+- try `https://sns-img-*.xhscdn.com/notes_pre_post/<raw_key>` before preview URLs
+- prefer `WB_DFT` / `urlDefault` over thumbnails
+- download all note images
+- write `manifest.json` with `original_success`, `preview_only`, or `failed`
+
+Use the lower-level bundled script when you already have raw keys or specific image URLs:
 
 - classify each input as preview URL / raw URL / raw key
 - normalize preview URLs into `raw_key`
 - probe candidate original CDN hosts
-- download the first working original image URL
+- download the first working candidate URL
+- report whether the downloaded result is `original_success` or `preview_only`
 
 ### Probe only
 
@@ -184,13 +215,13 @@ Before sending files back, verify:
 
 - file exists
 - content type starts with `image/`
-- dimensions are reasonable and clearly not tiny preview dimensions
-- chosen URL is not a preview URL with `sns-webpic` / `!nd_*` / `imageView2`
+- chosen URL is not a preview URL with `sns-webpic` / `!nd_*` / `imageView2` if you plan to call it original
+- if chosen URL is preview-only, say so explicitly
 
 ## Recovery rules
 
 - If feed API returns usable original URLs, stop there; do not spend extra browser round-trips.
-- If feed API fails but SSR preview URLs exist, derive `raw_key` from SSR and use the script fallback.
+- If feed API fails but SSR preview URLs exist, derive `raw_key` from SSR and use the script fallback, but treat any `sns-webpic` / `!nd_*` result as `preview_only`.
 - If the page redirects to login, reopen the note page fresh and rerun the single evaluate.
 - If only preview URLs are available after retry, explain that the page signing chain blocked extraction of the original feed payload.
 
@@ -200,5 +231,6 @@ If the user asked for the images, send the downloaded files directly and keep th
 
 ## Bundled files
 
+- `scripts/xhs_extract_note_images.py`: end-to-end share URL resolver, note parser, and downloader
 - `scripts/xhs_download_images.py`: classify input, extract raw key, probe candidate original CDN URLs, and download images
 - `references/url-patterns.md`: exact rules for distinguishing preview URL / raw URL / raw key and avoiding watermark-prone forms
