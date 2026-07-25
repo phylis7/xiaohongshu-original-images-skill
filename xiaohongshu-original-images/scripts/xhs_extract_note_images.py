@@ -24,6 +24,8 @@ ORIGINAL_HOSTS = (
     "https://sns-img-bd.xhscdn.com",
     "https://sns-img-hw.xhscdn.com",
     "https://sns-img-qn.xhscdn.com",
+    "https://sns-na-i1.xhscdn.com",
+    "https://sns-na-i2.xhscdn.com",
     "https://ci.xiaohongshu.com",
 )
 
@@ -126,11 +128,17 @@ def image_candidates(image: Dict) -> List[str]:
     original_urls = []
     for raw_key in raw_keys:
         for host in ORIGINAL_HOSTS:
+            # Current assets commonly resolve on the direct raw-key path while
+            # /notes_pre_post/ returns 404, so probe the direct form first.
+            original_urls.append(f"{host}/{raw_key}")
             original_urls.append(f"{host}/notes_pre_post/{raw_key}")
 
     seen = set()
     ordered = []
-    for url in [*original_urls, *urls]:
+    # Original-only: preview URLs are extraction inputs, never download
+    # candidates. If no raw CDN URL works, report failure instead of silently
+    # substituting a lower-resolution preview.
+    for url in original_urls:
         if url not in seen:
             seen.add(url)
             ordered.append(url)
@@ -265,9 +273,7 @@ def main() -> None:
         "title": note.get("title") or "",
         "status": (
             "original_success"
-            if any(r.get("status") == "original_success" for r in results)
-            else "preview_only"
-            if any(r.get("status") == "preview_only" for r in results)
+            if results and all(r.get("status") == "original_success" for r in results)
             else "failed"
         ),
         "images": results,
